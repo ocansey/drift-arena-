@@ -1,0 +1,1314 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="A live champion/challenger console for card-fraud detection: both models shadow-score every authorization, PSI tracks feature drift, and the challenger is promoted only when McNemar's test clears p < 0.01.">
+<meta name="author" content="Isaiah Thompson Ocansey">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Drift Arena">
+<meta property="og:title" content="Drift Arena — live card-fraud model ops">
+<meta property="og:description" content="A live champion/challenger console for card-fraud detection: both models shadow-score every authorization, PSI tracks feature drift, and the challenger is promoted only when McNemar's test clears p < 0.01.">
+<meta property="og:url" content="https://ocansey.github.io/drift-arena/">
+<meta property="og:image" content="https://ocansey.github.io/drift-arena/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="A fraud-detection console showing the champion model's recall collapsing from 97% to 25% when a new attack pattern arrives.">
+
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Drift Arena — live card-fraud model ops">
+<meta name="twitter:description" content="A live champion/challenger console for card-fraud detection: both models shadow-score every authorization, PSI tracks feature drift, and the challenger is promoted only when McNemar's test clears p < 0.01.">
+<meta name="twitter:image" content="https://ocansey.github.io/drift-arena/og.png">
+<title>Drift Arena</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+
+<style>
+/* ============================================================
+   TOKENS — light is the base; dark redefines tokens only.
+   ============================================================ */
+:root{
+  --ground:#EFF3F7;
+  --surface:#FFFFFF;
+  --surface-2:#E7EDF4;
+  --inset:#F5F8FB;
+  --ink:#0F171E;
+  --ink-2:#46525E;
+  --ink-3:#78848F;
+  --line:#D6DEE7;
+  --line-2:#BDC8D4;
+
+  --champ:#2B5D9B;
+  --chall:#C77A20;
+  --champ-wash:rgba(43,93,155,.13);
+  --chall-wash:rgba(199,122,32,.13);
+
+  --good:#2C7A57;
+  --warn:#8A6320;
+  --bad:#B33A2E;
+  --good-wash:rgba(44,122,87,.12);
+  --warn-wash:rgba(138,99,32,.13);
+  --bad-wash:rgba(179,58,46,.12);
+
+  --shadow:0 1px 2px rgba(15,23,30,.05), 0 8px 24px -12px rgba(15,23,30,.18);
+
+  --r:4px;
+  --step-0:.75rem;
+  --step-1:.8125rem;
+  --step-2:.9375rem;
+  --step-3:1.125rem;
+  --step-4:1.75rem;
+  --step-5:2.5rem;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#0C1116;
+    --surface:#141B22;
+    --surface-2:#1C252E;
+    --inset:#101820;
+    --ink:#E6ECF3;
+    --ink-2:#9EACBB;
+    --ink-3:#6D7C8B;
+    --line:#232E39;
+    --line-2:#33404D;
+
+    --champ:#5590D6;
+    --chall:#C6852F;
+    --champ-wash:rgba(85,144,214,.16);
+    --chall-wash:rgba(198,133,47,.16);
+
+    --good:#4FA87C;
+    --warn:#BE9648;
+    --bad:#D96A5B;
+    --good-wash:rgba(79,168,124,.14);
+    --warn-wash:rgba(190,150,72,.14);
+    --bad-wash:rgba(217,106,91,.14);
+
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 28px -14px rgba(0,0,0,.7);
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0C1116;
+  --surface:#141B22;
+  --surface-2:#1C252E;
+  --inset:#101820;
+  --ink:#E6ECF3;
+  --ink-2:#9EACBB;
+  --ink-3:#6D7C8B;
+  --line:#232E39;
+  --line-2:#33404D;
+
+  --champ:#5590D6;
+  --chall:#C6852F;
+  --champ-wash:rgba(85,144,214,.16);
+  --chall-wash:rgba(198,133,47,.16);
+
+  --good:#4FA87C;
+  --warn:#BE9648;
+  --bad:#D96A5B;
+  --good-wash:rgba(79,168,124,.14);
+  --warn-wash:rgba(190,150,72,.14);
+  --bad-wash:rgba(217,106,91,.14);
+
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 28px -14px rgba(0,0,0,.7);
+}
+
+*{box-sizing:border-box}
+
+body{
+  margin:0;
+  background:var(--ground);
+  color:var(--ink);
+  font-family:"IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-size:var(--step-2);
+  line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+}
+
+.mono{font-family:"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric:tabular-nums}
+.num{font-family:"IBM Plex Mono", ui-monospace, monospace; font-variant-numeric:tabular-nums; letter-spacing:-.01em}
+
+h1,h2,h3{font-family:"IBM Plex Sans Condensed", "IBM Plex Sans", sans-serif; margin:0; text-wrap:balance; letter-spacing:-.005em}
+
+.wrap{max-width:1320px; margin:0 auto; padding:0 20px 64px}
+
+/* ---------- masthead ---------- */
+.mast{
+  border-bottom:1px solid var(--line);
+  background:var(--surface);
+  position:sticky; top:0; z-index:30;
+}
+.mast-in{
+  max-width:1320px; margin:0 auto; padding:12px 20px;
+  display:flex; align-items:center; gap:20px; flex-wrap:wrap;
+}
+.brand{display:flex; align-items:baseline; gap:10px; margin-right:auto}
+.brand h1{font-size:var(--step-3); font-weight:700; letter-spacing:-.015em}
+.brand .sub{
+  font-size:var(--step-0); color:var(--ink-3); text-transform:uppercase;
+  letter-spacing:.09em; font-family:"IBM Plex Mono", monospace;
+}
+.live{
+  display:inline-flex; align-items:center; gap:7px;
+  font-family:"IBM Plex Mono", monospace; font-size:var(--step-0);
+  text-transform:uppercase; letter-spacing:.09em;
+  padding:4px 9px; border:1px solid var(--line-2); border-radius:100px;
+  color:var(--ink-2); background:var(--inset);
+}
+.dot{width:7px; height:7px; border-radius:50%; background:var(--good); flex:none}
+.live.on .dot{animation:pulse 1.6s ease-in-out infinite}
+.live.off .dot{background:var(--ink-3)}
+@keyframes pulse{0%,100%{opacity:1; transform:scale(1)} 50%{opacity:.35; transform:scale(.8)}}
+
+.controls{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+button{
+  font-family:"IBM Plex Sans", sans-serif; font-size:var(--step-1); font-weight:500;
+  color:var(--ink); background:var(--surface); border:1px solid var(--line-2);
+  border-radius:var(--r); padding:6px 12px; cursor:pointer;
+  transition:background .12s ease, border-color .12s ease;
+}
+button:hover{background:var(--surface-2); border-color:var(--ink-3)}
+button:focus-visible{outline:2px solid var(--champ); outline-offset:2px}
+button.primary{background:var(--ink); color:var(--surface); border-color:var(--ink)}
+button.primary:hover{opacity:.88; background:var(--ink)}
+button.danger{color:var(--bad); border-color:var(--bad)}
+button.danger:hover{background:var(--bad-wash)}
+button[disabled]{opacity:.4; cursor:not-allowed}
+.byline{
+  font-size:var(--step-0); color:var(--ink-3); text-align:right; line-height:1.35;
+  padding-left:16px; border-left:1px solid var(--line);
+}
+.byline b{display:block; color:var(--ink-2); font-weight:600; font-size:var(--step-1)}
+
+/* ---------- lede ---------- */
+.lede{
+  padding:26px 0 22px; max-width:66ch;
+}
+.lede p{margin:0; color:var(--ink-2); font-size:var(--step-2)}
+.lede .kicker{
+  font-family:"IBM Plex Mono", monospace; font-size:var(--step-0);
+  text-transform:uppercase; letter-spacing:.12em; color:var(--ink-3); margin-bottom:8px;
+}
+
+/* ---------- grid scaffolding ---------- */
+.row{display:grid; gap:14px; margin-bottom:14px}
+.r-stats{grid-template-columns:repeat(4,1fr)}
+.r-main{grid-template-columns:1.25fr 1fr}
+.r-lower{grid-template-columns:1fr 1fr}
+@media (max-width:1080px){
+  .r-main,.r-lower{grid-template-columns:1fr}
+  .r-stats{grid-template-columns:repeat(2,1fr)}
+}
+@media (max-width:560px){ .r-stats{grid-template-columns:1fr} }
+
+.panel{
+  background:var(--surface); border:1px solid var(--line);
+  border-radius:var(--r); box-shadow:var(--shadow);
+  display:flex; flex-direction:column; min-width:0;
+}
+.panel-hd{
+  display:flex; align-items:center; gap:10px;
+  padding:11px 14px; border-bottom:1px solid var(--line);
+}
+.panel-hd h2{
+  font-size:var(--step-1); font-weight:700; text-transform:uppercase;
+  letter-spacing:.08em; color:var(--ink-2);
+}
+.panel-hd .note{
+  margin-left:auto; font-size:var(--step-0); color:var(--ink-3);
+  font-family:"IBM Plex Mono", monospace;
+}
+.panel-bd{padding:14px; flex:1; min-width:0}
+.panel-bd.col{display:flex; flex-direction:column}
+
+/* ---------- stat tiles ---------- */
+.tile{
+  background:var(--surface); border:1px solid var(--line); border-radius:var(--r);
+  padding:12px 14px 13px; box-shadow:var(--shadow);
+}
+.tile .lbl{
+  font-family:"IBM Plex Mono", monospace; font-size:var(--step-0);
+  text-transform:uppercase; letter-spacing:.09em; color:var(--ink-3);
+}
+.tile .val{
+  font-family:"IBM Plex Mono", monospace; font-variant-numeric:tabular-nums;
+  font-size:var(--step-4); font-weight:600; line-height:1.15; margin-top:5px;
+  letter-spacing:-.025em;
+}
+.tile .foot{font-size:var(--step-0); color:var(--ink-2); margin-top:3px}
+
+/* ---------- pills ---------- */
+.pill{
+  display:inline-flex; align-items:center; gap:5px;
+  font-family:"IBM Plex Mono", monospace; font-size:var(--step-0);
+  text-transform:uppercase; letter-spacing:.07em;
+  padding:2px 7px; border-radius:100px; border:1px solid transparent; white-space:nowrap;
+}
+.pill.good{color:var(--good); background:var(--good-wash); border-color:var(--good)}
+.pill.warn{color:var(--warn); background:var(--warn-wash); border-color:var(--warn)}
+.pill.bad{color:var(--bad);  background:var(--bad-wash);  border-color:var(--bad)}
+.pill.mute{color:var(--ink-3); background:var(--inset); border-color:var(--line-2)}
+.pill .ic{font-weight:700}
+
+/* ---------- chart ---------- */
+.chartbox{position:relative; flex:1; min-height:250px}
+svg.chart{display:block; width:100%; height:100%; overflow:visible}
+.legend{display:flex; gap:16px; flex-wrap:wrap; margin-bottom:10px}
+.lg{display:inline-flex; align-items:center; gap:7px; font-size:var(--step-1); color:var(--ink-2)}
+.lg .sw{width:14px; height:3px; border-radius:2px; flex:none}
+.lg b{color:var(--ink); font-weight:600}
+.tip{
+  position:absolute; pointer-events:none; opacity:0; transition:opacity .1s ease;
+  background:var(--surface); border:1px solid var(--line-2); border-radius:var(--r);
+  box-shadow:var(--shadow); padding:8px 10px; font-size:var(--step-1);
+  min-width:150px; z-index:10;
+}
+.tip .th{
+  font-family:"IBM Plex Mono", monospace; font-size:var(--step-0); color:var(--ink-3);
+  text-transform:uppercase; letter-spacing:.08em; margin-bottom:5px;
+}
+.tip .tr{display:flex; align-items:center; gap:7px; margin-top:3px}
+.tip .tr .sw{width:9px; height:9px; border-radius:2px; flex:none}
+.tip .tr .tv{margin-left:auto; font-family:"IBM Plex Mono", monospace; font-variant-numeric:tabular-nums; font-weight:600}
+
+/* ---------- scoreboard ---------- */
+.arms{display:flex; flex-direction:column; gap:10px}
+.arm{border:1px solid var(--line); border-radius:var(--r); overflow:hidden; background:var(--inset)}
+.arm-hd{display:flex; align-items:center; gap:9px; padding:9px 11px; border-bottom:1px solid var(--line)}
+.arm-hd .swatch{width:10px; height:10px; border-radius:2px; flex:none}
+.arm-hd .nm{font-weight:600; font-size:var(--step-1)}
+.arm-hd .ver{font-family:"IBM Plex Mono", monospace; font-size:var(--step-0); color:var(--ink-3)}
+.arm-hd .role{margin-left:auto}
+.arm-bd{display:grid; grid-template-columns:repeat(4,1fr); gap:1px; background:var(--line)}
+.cell{background:var(--surface); padding:8px 10px}
+.cell .k{font-family:"IBM Plex Mono", monospace; font-size:var(--step-0); color:var(--ink-3); text-transform:uppercase; letter-spacing:.07em}
+.cell .v{font-family:"IBM Plex Mono", monospace; font-variant-numeric:tabular-nums; font-size:var(--step-3); font-weight:600; margin-top:2px}
+
+.split{margin-top:12px}
+.split .bar{display:flex; height:26px; border-radius:var(--r); overflow:hidden; gap:2px; background:var(--surface)}
+.split .seg{
+  display:flex; align-items:center; justify-content:center;
+  font-family:"IBM Plex Mono", monospace; font-size:var(--step-0); font-weight:600;
+  color:#fff; transition:flex-basis .5s ease;
+}
+.split .cap{display:flex; justify-content:space-between; margin-top:5px; font-size:var(--step-0); color:var(--ink-3); font-family:"IBM Plex Mono", monospace}
+
+.sig{
+  margin-top:12px; padding:11px; border:1px solid var(--line);
+  border-radius:var(--r); background:var(--inset);
+}
+.sig .top{display:flex; align-items:center; gap:10px; margin-bottom:8px}
+.sig .top .k{font-family:"IBM Plex Mono", monospace; font-size:var(--step-0); text-transform:uppercase; letter-spacing:.08em; color:var(--ink-3)}
+.sig .top .p{margin-left:auto; font-family:"IBM Plex Mono", monospace; font-weight:600; font-variant-numeric:tabular-nums}
+.meter{height:6px; border-radius:100px; background:var(--surface-2); overflow:hidden; border:1px solid var(--line)}
+.meter i{display:block; height:100%; background:var(--ink-3); transition:width .4s ease, background .4s ease}
+.meter i.hit{background:var(--good)}
+.sig .exp{font-size:var(--step-0); color:var(--ink-3); margin-top:7px; line-height:1.45}
+
+/* ---------- drift ---------- */
+.feat{display:flex; align-items:center; gap:11px; padding:7px 0}
+.feat + .feat{border-top:1px solid var(--line)}
+.feat .fn{
+  font-family:"IBM Plex Mono", monospace; font-size:var(--step-1);
+  width:150px; flex:none; color:var(--ink-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.track{position:relative; flex:1; height:14px; background:var(--surface-2); border-radius:2px; min-width:60px}
+.track i{
+  position:absolute; left:0; top:0; bottom:0;
+  border-radius:0 4px 4px 0; transition:width .45s ease, background .45s ease;
+}
+.track .thr{position:absolute; top:-2px; bottom:-2px; width:1px; background:var(--line-2)}
+.feat .fv{font-family:"IBM Plex Mono", monospace; font-variant-numeric:tabular-nums; font-size:var(--step-1); width:48px; text-align:right; flex:none; font-weight:600}
+.feat .fs{width:74px; flex:none; display:flex; justify-content:flex-end}
+.driftkey{display:flex; gap:14px; flex-wrap:wrap; margin-top:11px; padding-top:10px; border-top:1px solid var(--line); font-size:var(--step-0); color:var(--ink-3); font-family:"IBM Plex Mono", monospace}
+
+/* ---------- log ---------- */
+.log{list-style:none; margin:0; padding:0; max-height:246px; overflow-y:auto}
+.log li{display:flex; gap:10px; padding:7px 0; font-size:var(--step-1); align-items:flex-start}
+.log li + li{border-top:1px solid var(--line)}
+.log .t{font-family:"IBM Plex Mono", monospace; font-size:var(--step-0); color:var(--ink-3); flex:none; padding-top:2px; width:56px}
+.log .m{color:var(--ink-2); min-width:0}
+.log .m b{color:var(--ink); font-weight:600}
+.log .sv{flex:none; padding-top:1px}
+
+/* ---------- stream table ---------- */
+.tblwrap{overflow-x:auto}
+table{border-collapse:collapse; width:100%; min-width:720px}
+th{
+  text-align:left; font-family:"IBM Plex Mono", monospace; font-size:var(--step-0);
+  text-transform:uppercase; letter-spacing:.08em; color:var(--ink-3); font-weight:500;
+  padding:0 10px 8px; border-bottom:1px solid var(--line); white-space:nowrap;
+}
+td{
+  padding:7px 10px; border-bottom:1px solid var(--line); font-size:var(--step-1);
+  font-family:"IBM Plex Mono", monospace; font-variant-numeric:tabular-nums; white-space:nowrap;
+}
+th.r, td.r{text-align:right}
+tbody tr.disagree td{background:var(--warn-wash)}
+.verdict{font-weight:600}
+.verdict.decline{color:var(--bad)}
+.verdict.approve{color:var(--ink-3)}
+.tag{
+  font-size:var(--step-0); padding:1px 5px; border-radius:2px;
+  border:1px solid var(--line-2); color:var(--ink-3);
+}
+.tag.fraud{color:var(--bad); border-color:var(--bad); background:var(--bad-wash)}
+
+/* ---------- how it works ---------- */
+.how{margin-top:26px}
+.how-grid{display:grid; grid-template-columns:repeat(4,1fr); gap:14px}
+@media (max-width:1080px){ .how-grid{grid-template-columns:repeat(2,1fr)} }
+@media (max-width:560px){ .how-grid{grid-template-columns:1fr} }
+.step{background:var(--surface); border:1px solid var(--line); border-radius:var(--r); padding:14px; box-shadow:var(--shadow)}
+.step .n{
+  font-family:"IBM Plex Mono", monospace; font-size:var(--step-0); color:var(--ink-3);
+  letter-spacing:.1em; margin-bottom:7px;
+}
+.step h3{font-size:var(--step-2); font-weight:700; margin-bottom:5px}
+.step p{margin:0; font-size:var(--step-1); color:var(--ink-2); line-height:1.5}
+.step code{font-family:"IBM Plex Mono", monospace; font-size:.92em; background:var(--inset); padding:1px 4px; border-radius:2px; border:1px solid var(--line)}
+
+footer{
+  margin-top:34px; padding-top:18px; border-top:1px solid var(--line);
+  font-size:var(--step-1); color:var(--ink-3); display:flex; gap:16px; flex-wrap:wrap; align-items:baseline;
+}
+footer b{color:var(--ink-2)}
+
+@media (prefers-reduced-motion: reduce){
+  *{animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important}
+}
+</style>
+</head>
+<body>
+
+
+<header class="mast">
+  <div class="mast-in">
+    <div class="brand">
+      <h1>Drift Arena</h1>
+      <span class="sub">card-fraud model ops</span>
+    </div>
+    <span class="live on" id="liveBadge"><span class="dot"></span><span id="liveTxt">Streaming</span></span>
+    <div class="controls">
+      <button id="btnPlay" class="primary">Pause</button>
+      <button id="btnDrift">Inject fraud-pattern shift</button>
+      <button id="btnReset">Reset</button>
+    </div>
+    <div class="byline">
+      <b>Isaiah Thompson Ocansey</b>
+      Machine Learning Engineer · Anomaly Detection &amp; MLOps
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="lede">
+    <div class="kicker">Live simulation · runs in your browser</div>
+    <p>A production fraud model does not fail loudly. It decays quietly, as the behaviour it was trained on stops being the behaviour it sees. This console runs two models against the same live authorization stream, measures the gap between them, watches every input feature for distribution shift, and promotes the winner only when the evidence clears a significance bar.</p>
+  </div>
+
+  <!-- STAT TILES -->
+  <div class="row r-stats">
+    <div class="tile">
+      <div class="lbl">Authorizations scored</div>
+      <div class="val num" id="sTx">0</div>
+      <div class="foot"><span id="sRate">0</span> per second · <span id="sFraudRate">0.00%</span> fraud</div>
+    </div>
+    <div class="tile">
+      <div class="lbl">Fraud caught / attempted</div>
+      <div class="val num" id="sCaught">0 / 0</div>
+      <div class="foot">Actioned decisions only</div>
+    </div>
+    <div class="tile">
+      <div class="lbl">Challenger lift</div>
+      <div class="val num" id="sLift">—</div>
+      <div class="foot" id="sLiftFoot">Recall difference vs champion</div>
+    </div>
+    <div class="tile">
+      <div class="lbl">Regime</div>
+      <div class="val" id="sRegime" style="font-size:var(--step-3); padding-top:6px">Stable</div>
+      <div class="foot" id="sRegimeFoot">Baseline distribution holding</div>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="row r-main">
+
+    <div class="panel">
+      <div class="panel-hd">
+        <h2>Rolling recall by model</h2>
+        <span class="note">EMA · shadow-scored on all traffic</span>
+      </div>
+      <div class="panel-bd col">
+        <div class="legend">
+          <span class="lg"><span class="sw" style="background:var(--champ)"></span><b id="lgChampName">champion</b> <span id="lgChampVal" class="num"></span></span>
+          <span class="lg"><span class="sw" style="background:var(--chall)"></span><b id="lgChallName">challenger</b> <span id="lgChallVal" class="num"></span></span>
+        </div>
+        <div class="chartbox" id="chartBox">
+          <svg class="chart" id="chart" viewBox="0 0 720 250" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Rolling recall of the champion and challenger models over time"></svg>
+          <div class="tip" id="tip"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-hd">
+        <h2>A/B scoreboard</h2>
+        <span class="note" id="sbNote">shadow evaluation · McNemar</span>
+      </div>
+      <div class="panel-bd">
+        <div class="arms">
+          <div class="arm">
+            <div class="arm-hd">
+              <span class="swatch" style="background:var(--champ)"></span>
+              <span class="nm" id="aChampName">gbm_auth_risk</span>
+              <span class="ver" id="aChampVer">v3.2</span>
+              <span class="role pill mute">Champion</span>
+            </div>
+            <div class="arm-bd">
+              <div class="cell"><div class="k">Recall</div><div class="v" id="cRec">—</div></div>
+              <div class="cell"><div class="k">Precision</div><div class="v" id="cPre">—</div></div>
+              <div class="cell"><div class="k">F1</div><div class="v" id="cF1">—</div></div>
+              <div class="cell"><div class="k">Actioned</div><div class="v" id="cN">0</div></div>
+            </div>
+          </div>
+          <div class="arm">
+            <div class="arm-hd">
+              <span class="swatch" style="background:var(--chall)"></span>
+              <span class="nm" id="aChallName">gbm_auth_risk</span>
+              <span class="ver" id="aChallVer">v4.0</span>
+              <span class="role pill mute">Challenger</span>
+            </div>
+            <div class="arm-bd">
+              <div class="cell"><div class="k">Recall</div><div class="v" id="hRec">—</div></div>
+              <div class="cell"><div class="k">Precision</div><div class="v" id="hPre">—</div></div>
+              <div class="cell"><div class="k">F1</div><div class="v" id="hF1">—</div></div>
+              <div class="cell"><div class="k">Served</div><div class="v" id="hN">0</div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="split">
+          <div class="bar">
+            <div class="seg" id="segC" style="flex:0 0 90%; background:var(--champ)">90%</div>
+            <div class="seg" id="segH" style="flex:0 0 10%; background:var(--chall)">10%</div>
+          </div>
+          <div class="cap"><span>traffic allocation</span><span id="splitNote">holdout at 10%</span></div>
+        </div>
+
+        <div class="sig">
+          <div class="top">
+            <span class="k">Evidence for promotion</span>
+            <span class="pill mute" id="sigPill">gathering</span>
+            <span class="p" id="sigP">p = —</span>
+          </div>
+          <div class="meter"><i id="sigBar" style="width:0%"></i></div>
+          <div class="exp" id="sigExp">Discordant pairs so far. Promotion needs at least 40 discordant pairs and p &lt; 0.01.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- LOWER -->
+  <div class="row r-lower">
+
+    <div class="panel">
+      <div class="panel-hd">
+        <h2>Feature drift · PSI</h2>
+        <span class="note">vs training baseline · 400-event window</span>
+      </div>
+      <div class="panel-bd">
+        <div id="feats"></div>
+        <div class="driftkey">
+          <span>PSI &lt; 0.10 stable</span>
+          <span>0.10–0.25 watch</span>
+          <span>&gt; 0.25 drifting</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-hd">
+        <h2>Operations log</h2>
+        <span class="note" id="logCount">0 events</span>
+      </div>
+      <div class="panel-bd">
+        <ul class="log" id="log"></ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- STREAM -->
+  <div class="panel">
+    <div class="panel-hd">
+      <h2>Authorization stream</h2>
+      <span class="note">last 9 events · shaded rows are model disagreements</span>
+    </div>
+    <div class="panel-bd">
+      <div class="tblwrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Auth ID</th>
+              <th class="r">Amount</th>
+              <th>Merchant</th>
+              <th class="r">Velocity 1h</th>
+              <th class="r">Device age</th>
+              <th>Champion</th>
+              <th>Challenger</th>
+              <th>Ground truth</th>
+            </tr>
+          </thead>
+          <tbody id="stream"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- HOW -->
+  <div class="how">
+    <div class="how-grid">
+      <div class="step">
+        <div class="n">STAGE 01</div>
+        <h3>Shadow scoring</h3>
+        <p>Every authorization is scored by <em>both</em> models, so the challenger is measured on 100% of traffic from day one. Only the arm a transaction is routed to actually decides the outcome, so an unproven model is evaluated at full statistical power while risking only its allocated slice.</p>
+      </div>
+      <div class="step">
+        <div class="n">STAGE 02</div>
+        <h3>Drift detection</h3>
+        <p>Each input feature is binned against the distribution captured at training time and scored with <code>PSI = Σ (aᵢ − eᵢ) · ln(aᵢ/eᵢ)</code>. Two or more features crossing 0.25 fires the alarm — before the loss shows up in a weekly report.</p>
+      </div>
+      <div class="step">
+        <div class="n">STAGE 03</div>
+        <h3>Adaptive allocation</h3>
+        <p>A drift alarm rebalances traffic from 90/10 to 50/50. Under a shifting distribution the cost of running an under-powered test is higher than the cost of exposing more traffic to the challenger, so the split follows the evidence.</p>
+      </div>
+      <div class="step">
+        <div class="n">STAGE 04</div>
+        <h3>Gated promotion</h3>
+        <p>Because both models judge the same authorizations, the outcomes are paired — so the gate is <code>McNemar’s test</code> on discordant pairs, not a two-proportion z-test that would assume independence it does not have. Promotion fires at <code>p &lt; 0.01</code>.</p>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <span><b>Drift Arena</b> — synthetic authorization stream, deterministic model logic, statistics computed live in the browser. No data leaves this page.</span>
+    <span>Built by <b>Isaiah Thompson Ocansey</b></span>
+  </footer>
+</div>
+
+<script>
+(() => {
+"use strict";
+
+/* =====================================================================
+   1. FEATURE SCHEMA & TRAINING BASELINE
+   ===================================================================== */
+const FEATURES = [
+  { key:"amount_zscore",    label:"amount_zscore",    lo:-2,  hi:6   },
+  { key:"velocity_1h",      label:"velocity_1h",      lo:0,   hi:14  },
+  { key:"merchant_risk",    label:"merchant_risk",    lo:0,   hi:1   },
+  { key:"bin_country_match",label:"bin_country_match",lo:0,   hi:1   },
+  { key:"device_age_days",  label:"device_age_days",  lo:0,   hi:900 },
+  { key:"hour_of_day",      label:"hour_of_day",      lo:0,   hi:24  },
+];
+const NBIN = 10, WINDOW = 400, EPS = 1e-4;
+
+const MERCHANTS = ["GLOBEX RETAIL","NAKATOMI FUEL","SOYLENT GROCER","VEHEMENT DIGITAL",
+  "ACME TRAVEL","INITECH SAAS","MASSIVE DYNAMIC","OSCORP PHARMA","BLUTH FROZEN","PIED PIPER"];
+
+/* deterministic PRNG so the page tells the same story every load */
+let seed = 20260821;
+function rnd(){ seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; }
+function gauss(){ let u=0,v=0; while(!u) u=rnd(); while(!v) v=rnd();
+  return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v); }
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+const sig=x=>1/(1+Math.exp(-x));
+
+/* =====================================================================
+   2. MODELS — hand-specified logistic scorers.
+      The champion has NO velocity term. That single omission is what the
+      card-testing regime exploits, and what the challenger fixes.
+   ===================================================================== */
+const MODELS = {
+  "v3.2": { name:"gbm_auth_risk", ver:"v3.2", thr:0.50, useVelocity:false,
+    score(f){ return sig(-3.30 + 1.45*f.amount_zscore + 2.30*f.merchant_risk
+      + 1.70*(1-f.bin_country_match) + 0.95*(f.device_age_days<30?1:0)); } },
+  "v4.0": { name:"gbm_auth_risk", ver:"v4.0", thr:0.50, useVelocity:true,
+    score(f){ return sig(-3.55 + 1.15*f.amount_zscore + 2.05*f.merchant_risk
+      + 1.45*(1-f.bin_country_match) + 0.85*(f.device_age_days<30?1:0)
+      + 0.42*f.velocity_1h); } },
+  "v4.1": { name:"gbm_auth_risk", ver:"v4.1", thr:0.50, useVelocity:true,
+    score(f){ return sig(-3.60 + 1.10*f.amount_zscore + 2.00*f.merchant_risk
+      + 1.40*(1-f.bin_country_match) + 0.90*(f.device_age_days<30?1:0)
+      + 0.45*f.velocity_1h + 0.30*(f.hour_of_day<5?1:0)); } },
+  "v4.2": { name:"gbm_auth_risk", ver:"v4.2", thr:0.50, useVelocity:true,
+    score(f){ return sig(-3.62 + 1.12*f.amount_zscore + 1.98*f.merchant_risk
+      + 1.42*(1-f.bin_country_match) + 0.92*(f.device_age_days<30?1:0)
+      + 0.47*f.velocity_1h + 0.34*(f.hour_of_day<5?1:0)); } },
+};
+const LINEAGE = ["v3.2","v4.0","v4.1","v4.2"];
+
+/* =====================================================================
+   3. STATE
+   ===================================================================== */
+let S;
+/* Shadow metrics: computed on ALL traffic, since both models score every
+   authorization. `served` counts only the slice this arm actually decided. */
+function blankArm(){ return { served:0, caught:0, flagged:0, tp:0, fp:0, ema:null }; }
+
+function freshState(){
+  return {
+    running:true,
+    t:0,                       // simulated seconds
+    tx:0,
+    regime:"stable",           // stable | drifting
+    driftStrength:0,
+    epoch:0,                   // which fraud pattern is currently invading
+    champ:"v3.2", chall:"v4.0",
+    nextIdx:2,
+    splitH:0.10,
+    champArm:blankArm(), challArm:blankArm(),
+    fraudSeen:0,               // fraud attempts in the shadow evaluation set
+    disc:{ b:0, c:0 },         // McNemar discordant pairs on fraud attempts
+    totalFraud:0, totalCaught:0,
+    buffers:Object.fromEntries(FEATURES.map(f=>[f.key,[]])),
+    baseline:null,
+    psi:Object.fromEntries(FEATURES.map(f=>[f.key,0])),
+    series:{ champ:[], chall:[] },
+    marks:[], pendingMark:false,
+    stream:[],
+    log:[],
+    alarmed:false,
+    promotions:0,
+    lastP:null,
+  };
+}
+
+/* baseline = binned distribution captured on 4000 pre-drift samples */
+function buildBaseline(){
+  const counts = Object.fromEntries(FEATURES.map(f=>[f.key,new Array(NBIN).fill(0)]));
+  const keep = seed;
+  for(let i=0;i<4000;i++){
+    const f = drawFeatures(0, 1);
+    for(const F of FEATURES) counts[F.key][binOf(F, f[F.key])]++;
+  }
+  seed = keep;
+  const out = {};
+  for(const F of FEATURES){
+    const tot = counts[F.key].reduce((a,b)=>a+b,0);
+    out[F.key] = counts[F.key].map(c => Math.max(c/tot, EPS));
+  }
+  return out;
+}
+function binOf(F, v){
+  const t = (v - F.lo) / (F.hi - F.lo);
+  return clamp(Math.floor(t * NBIN), 0, NBIN-1);
+}
+function psiOf(key, F){
+  const buf = S.buffers[key];
+  if(buf.length < 120) return 0;
+  const c = new Array(NBIN).fill(0);
+  for(const v of buf) c[binOf(F, v)]++;
+  let psi = 0;
+  for(let i=0;i<NBIN;i++){
+    const a = Math.max(c[i]/buf.length, EPS), e = S.baseline[key][i];
+    psi += (a - e) * Math.log(a / e);
+  }
+  return Math.max(0, psi);
+}
+
+/* =====================================================================
+   4. DATA GENERATOR
+      d = drift strength 0..1. Under drift a second fraud mode appears:
+      card testing — tiny amounts, high velocity, brand-new devices.
+   ===================================================================== */
+const EPOCHS = [
+  null,
+  { id:"card_testing", label:"card-testing burst",
+    blurb:"sub-$20 authorizations, 1-hour velocity above 6, devices under 30 days old",
+    amt:[-1.30,0.45], vel:[6.0,3.4], risk:[0.30,0.42], binMatch:0.72, dev:11,  hour:[0,6] },
+  { id:"bot_swarm", label:"overnight bot swarm",
+    blurb:"foreign BINs, velocity above 9, evening peak, low-risk merchants used as cover",
+    amt:[-0.60,0.55], vel:[9.0,3.0], risk:[0.10,0.30], binMatch:0.28, dev:6,   hour:[18,24] },
+  { id:"takeover", label:"account-takeover wave",
+    blurb:"high-ticket daytime purchases from newly enrolled devices at elevated velocity",
+    amt:[ 2.10,0.90], vel:[4.5,2.2], risk:[0.55,0.35], binMatch:0.88, dev:4,   hour:[9,17] },
+];
+function epochOf(e){ return EPOCHS[((e-1) % (EPOCHS.length-1)) + 1]; }
+
+function drawFeatures(d, epoch){
+  const E = epochOf(epoch || 1);
+  const cardTesting = d > 0 && rnd() < d * 0.16;
+  const hour = cardTesting ? clamp(E.hour[0] + rnd()*(E.hour[1]-E.hour[0]), 0, 24)
+                           : clamp(11 + gauss()*5.5, 0, 24);
+  if(cardTesting){
+    return {
+      amount_zscore:     clamp(E.amt[0] + Math.abs(gauss())*E.amt[1], -2, 6),
+      velocity_1h:       clamp(E.vel[0] + Math.abs(gauss())*E.vel[1], 0, 14),
+      merchant_risk:     clamp(E.risk[0] + rnd()*E.risk[1], 0, 1),
+      bin_country_match: rnd() < E.binMatch ? 1 : 0,
+      device_age_days:   clamp(Math.abs(gauss())*E.dev, 0, 900),
+      hour_of_day:       hour,
+      _mode:"testing",
+    };
+  }
+  return {
+    amount_zscore:     clamp(gauss()*0.95, -2, 6),
+    velocity_1h:       clamp(Math.abs(gauss())*1.15, 0, 14),
+    merchant_risk:     clamp(rnd()*rnd(), 0, 1),
+    bin_country_match: rnd() < 0.965 ? 1 : 0,
+    device_age_days:   clamp(Math.abs(gauss())*260 + 12, 0, 900),
+    hour_of_day:       hour,
+    _mode:"organic",
+  };
+}
+
+function drawTransaction(){
+  const d = S.driftStrength;
+  const f = drawFeatures(d, S.epoch);
+  let isFraud = false;
+
+  if(f._mode === "testing"){
+    isFraud = rnd() < 0.45;                     // attack bursts are mostly fraud
+    if(!isFraud){ f.velocity_1h *= 0.55; }
+  } else {
+    // classic fraud: large ticket, risky merchant, BIN mismatch, fresh device
+    const latent = -5.75 + 0.85*f.amount_zscore + 1.9*f.merchant_risk
+                 + 1.75*(1-f.bin_country_match) + 0.75*(f.device_age_days<30?1:0);
+    isFraud = rnd() < sig(latent);
+    if(isFraud){
+      f.amount_zscore   = clamp(f.amount_zscore + 1.5 + Math.abs(gauss()), -2, 6);
+      f.merchant_risk   = clamp(f.merchant_risk + 0.22, 0, 1);
+      f.device_age_days = rnd() < 0.5 ? clamp(Math.abs(gauss())*22, 0, 900) : f.device_age_days;
+    }
+  }
+  const amountUSD = Math.round(Math.exp(3.1 + f.amount_zscore*0.62 + rnd()*0.4) * 100) / 100;
+  return { f, isFraud, amountUSD, merchant: MERCHANTS[Math.floor(rnd()*MERCHANTS.length)],
+           id: "AU-" + (748210 + S.tx).toString(36).toUpperCase() };
+}
+
+/* =====================================================================
+   5. STATISTICS — McNemar's test on discordant pairs.
+      Both models judge the SAME fraud attempts, so the outcomes are paired.
+      A two-proportion z-test would assume independence it does not have and
+      would be under-powered; McNemar conditions on the discordant pairs,
+      which is exactly the evidence that distinguishes the two models.
+        b = challenger caught it, champion missed it
+        c = champion caught it, challenger missed it
+      χ²(1) = (|b − c| − 1)² / (b + c)   [Yates continuity correction]
+   ===================================================================== */
+function erf(x){
+  const s = x < 0 ? -1 : 1; x = Math.abs(x);
+  const t = 1/(1+0.3275911*x);
+  const y = 1 - (((((1.061405429*t - 1.453152027)*t) + 1.421413741)*t - 0.284496736)*t + 0.254829592)*t*Math.exp(-x*x);
+  return s*y;
+}
+const phi = z => 0.5*(1+erf(z/Math.SQRT2));
+
+function mcnemar(){
+  const { b, c } = S.disc;
+  const nd = b + c;
+  if(nd < 10 || S.fraudSeen < 30) return null;
+  const chi2 = Math.pow(Math.abs(b-c) - 1, 2) / nd;
+  const z = Math.sign(b-c) * Math.sqrt(Math.max(0, chi2));
+  const p = 1 - phi(z);                         // one-sided: challenger better
+  const recC = S.fraudSeen ? S.champArm.caught/S.fraudSeen : 0;
+  const recH = S.fraudSeen ? S.challArm.caught/S.fraudSeen : 0;
+  return { b, c, nd, chi2, z, p, lift: recH - recC, n: S.fraudSeen };
+}
+
+/* =====================================================================
+   6. SIMULATION STEP
+   ===================================================================== */
+const ALPHA = 0.05;
+
+function step(){
+  const t = drawTransaction();
+  S.tx++; S.t += 1/150;
+
+  for(const F of FEATURES){
+    const buf = S.buffers[F.key];
+    buf.push(t.f[F.key]);
+    if(buf.length > WINDOW) buf.shift();
+  }
+
+  const champM = MODELS[S.champ], challM = MODELS[S.chall];
+  const dc = champM.score(t.f) >= champM.thr;   // champion verdict
+  const dh = challM.score(t.f) >= challM.thr;   // challenger verdict (shadow)
+
+  // --- shadow evaluation: both models judged on every authorization ---
+  const A = S.champArm, B = S.challArm;
+  if(dc) A.flagged++;
+  if(dh) B.flagged++;
+  if(t.isFraud){
+    S.fraudSeen++;
+    if(dc){ A.caught++; A.tp++; }
+    if(dh){ B.caught++; B.tp++; }
+    if(dh && !dc) S.disc.b++;
+    if(dc && !dh) S.disc.c++;
+    A.ema = A.ema === null ? (dc?1:0) : A.ema + ALPHA*((dc?1:0) - A.ema);
+    B.ema = B.ema === null ? (dh?1:0) : B.ema + ALPHA*((dh?1:0) - B.ema);
+  } else {
+    if(dc) A.fp++;
+    if(dh) B.fp++;
+  }
+
+  // --- allocation: which arm's verdict is actually actioned ---
+  const toChall = rnd() < S.splitH;
+  (toChall ? B : A).served++;
+  const actioned = toChall ? dh : dc;
+  if(t.isFraud){
+    S.totalFraud++;
+    if(actioned) S.totalCaught++;
+  }
+
+  S.stream.unshift({ id:t.id, amt:t.amountUSD, merch:t.merchant,
+    vel:t.f.velocity_1h, dev:t.f.device_age_days,
+    dc, dh, fraud:t.isFraud, disagree: dc !== dh });
+  if(S.stream.length > 9) S.stream.pop();
+
+  if(S.regime === "drifting" && S.driftStrength < 1)
+    S.driftStrength = Math.min(1, S.driftStrength + 0.0042);
+}
+
+/* =====================================================================
+   7. CONTROL LOOP — drift alarm, allocation, promotion
+   ===================================================================== */
+function control(){
+  for(const F of FEATURES) S.psi[F.key] = psiOf(F.key, F);
+  const drifting = FEATURES.filter(F => S.psi[F.key] > 0.25).length;
+
+  if(!S.alarmed && drifting >= 2 && S.regime === "drifting"){
+    S.alarmed = true;
+    S.splitH = 0.50;
+    const names = FEATURES.filter(F => S.psi[F.key] > 0.25).map(F=>F.key).slice(0,3).join(", ");
+    logEvent("bad", `<b>Drift alarm.</b> PSI above 0.25 on ${drifting} features (${names}). Traffic rebalanced to 50/50 to power the test.`);
+  }
+
+  const r = mcnemar();
+  S.lastP = r;
+  if(r && r.p < 0.01 && r.b > r.c && r.nd >= 40){
+    promote(r);
+  }
+}
+
+function promote(r){
+  const old = MODELS[S.champ], won = MODELS[S.chall];
+  S.champ = S.chall;
+  S.chall = LINEAGE[Math.min(S.nextIdx++, LINEAGE.length-1)];
+  S.promotions++;
+  const carry = S.challArm.ema;
+  S.champArm = blankArm(); S.challArm = blankArm();
+  S.champArm.ema = carry; S.challArm.ema = carry;          // the winner's curve continues as champion
+  S.fraudSeen = 0; S.disc = { b:0, c:0 }; S.lastP = null;
+  S.pendingMark = true;
+  S.splitH = 0.10;
+  S.alarmed = false;
+  S.baseline = buildBaselineFromWindow();
+  S.regime = "stable";
+  logEvent("good", `<b>Promoted ${won.ver} → champion.</b> Recall lift +${(r.lift*100).toFixed(1)} pts over ${old.ver} on ${r.n} fraud attempts; McNemar χ² = ${r.chi2.toFixed(1)}, p = ${fmtP(r.p)}. Baseline re-anchored to the new population; ${MODELS[S.chall].ver} enters at 10%.`);
+}
+
+/* after promotion the new champion's training baseline is the current world */
+function buildBaselineFromWindow(){
+  const out = {};
+  for(const F of FEATURES){
+    const buf = S.buffers[F.key];
+    const c = new Array(NBIN).fill(0);
+    for(const v of buf) c[binOf(F, v)]++;
+    const tot = Math.max(1, buf.length);
+    out[F.key] = c.map(x => Math.max(x/tot, EPS));
+  }
+  return out;
+}
+
+function triggerDrift(){
+  if(S.regime === "drifting") return;
+  S.epoch++;
+  const E = epochOf(S.epoch);
+  S.regime = "drifting";
+  S.driftStrength = 0.02;
+  logEvent("warn", `<b>Population shift detected upstream</b> — ${E.label}: ${E.blurb}.`);
+}
+
+/* =====================================================================
+   8. LOGGING
+   ===================================================================== */
+function clockStr(){
+  const m = Math.floor(S.t/60), s = Math.floor(S.t%60);
+  return String(m).padStart(2,"0") + ":" + String(s).padStart(2,"0");
+}
+function logEvent(sev, html){
+  S.log.unshift({ sev, html, t:clockStr() });
+  if(S.log.length > 40) S.log.pop();
+  renderLog();
+}
+function fmtP(p){
+  if(p < 0.0001) return "<0.0001";
+  return p.toFixed(4);
+}
+
+/* =====================================================================
+   9. RENDER
+   ===================================================================== */
+const $ = id => document.getElementById(id);
+
+function pct(x, dp=1){ return (x*100).toFixed(dp) + "%"; }
+
+function renderStats(){
+  $("sTx").textContent = S.tx.toLocaleString();
+  $("sRate").textContent = "150";
+  $("sFraudRate").textContent = S.tx ? pct(S.totalFraud/S.tx, 2) : "0.00%";
+  $("sCaught").textContent = S.totalCaught.toLocaleString() + " / " + S.totalFraud.toLocaleString();
+
+  const r = S.lastP;
+  if(r){
+    const v = r.lift*100;
+    $("sLift").textContent = (v >= 0 ? "+" : "") + v.toFixed(1) + " pts";
+    $("sLift").style.color = v > 0.4 ? "var(--chall)" : v < -0.4 ? "var(--champ)" : "var(--ink-2)";
+    $("sLiftFoot").textContent = `${r.b} caught only by challenger · ${r.c} only by champion`;
+  } else {
+    $("sLift").textContent = "—";
+    $("sLift").style.color = "var(--ink-3)";
+    $("sLiftFoot").textContent = "Awaiting 25 fraud attempts";
+  }
+
+  const reg = $("sRegime");
+  if(S.regime === "drifting"){
+    reg.textContent = "Shifting";
+    reg.style.color = "var(--bad)";
+    $("sRegimeFoot").textContent = `${epochOf(S.epoch).label} at ${(S.driftStrength*16).toFixed(0)}% of volume`;
+  } else {
+    reg.textContent = "Stable";
+    reg.style.color = "var(--good)";
+    $("sRegimeFoot").textContent = S.promotions
+      ? `Baseline re-anchored after ${S.promotions} promotion${S.promotions>1?"s":""}`
+      : "Baseline distribution holding";
+  }
+}
+
+function armMetrics(a){
+  const rec = S.fraudSeen ? a.caught/S.fraudSeen : null;
+  const pre = a.flagged ? a.tp/a.flagged : null;
+  const f1  = (rec!==null && pre!==null && (rec+pre)>0) ? 2*rec*pre/(rec+pre) : null;
+  return { rec, pre, f1 };
+}
+
+function renderScoreboard(){
+  const cm = MODELS[S.champ], hm = MODELS[S.chall];
+  $("aChampName").textContent = cm.name; $("aChampVer").textContent = cm.ver;
+  $("aChallName").textContent = hm.name; $("aChallVer").textContent = hm.ver;
+  $("lgChampName").textContent = "champion " + cm.ver;
+  $("lgChallName").textContent = "challenger " + hm.ver;
+
+  const c = armMetrics(S.champArm), h = armMetrics(S.challArm);
+  const set=(id,v,dp=1)=>{ $(id).textContent = v===null ? "—" : pct(v,dp); };
+  set("cRec", c.rec); set("cPre", c.pre); set("cF1", c.f1);
+  set("hRec", h.rec); set("hPre", h.pre); set("hF1", h.f1);
+  $("cN").textContent = S.champArm.served.toLocaleString();
+  $("hN").textContent = S.challArm.served.toLocaleString();
+  const lastA = S.series.champ[S.series.champ.length-1];
+  const lastB = S.series.chall[S.series.chall.length-1];
+  $("lgChampVal").textContent = lastA===undefined ? "" : pct(lastA);
+  $("lgChallVal").textContent = lastB===undefined ? "" : pct(lastB);
+
+  const hp = Math.round(S.splitH*100);
+  $("segC").style.flexBasis = (100-hp)+"%"; $("segC").textContent = (100-hp)+"%";
+  $("segH").style.flexBasis = hp+"%";       $("segH").textContent = hp+"%";
+  $("splitNote").textContent = S.alarmed ? "rebalanced by drift alarm" : "holdout at " + hp + "%";
+
+  const r = S.lastP, pill = $("sigPill"), bar = $("sigBar"), exp = $("sigExp");
+  if(!r){
+    $("sigP").textContent = "p = —";
+    pill.className = "pill mute"; pill.textContent = "gathering";
+    bar.style.width = "0%"; bar.classList.remove("hit");
+    exp.innerHTML = `Discordant pairs so far: <b>b = ${S.disc.b}</b> (challenger only) · <b>c = ${S.disc.c}</b> (champion only). Promotion needs at least 40 discordant pairs and p &lt; 0.01.`;
+  } else {
+    $("sigP").textContent = "p = " + fmtP(r.p);
+    const prog = clamp((-Math.log10(Math.max(r.p,1e-6))) / 2, 0, 1) *
+                 clamp(r.nd/40, 0, 1);
+    bar.style.width = (prog*100).toFixed(0) + "%";
+    if(r.p < 0.01 && r.b > r.c && r.nd >= 25){
+      pill.className = "pill good"; pill.textContent = "significant";
+      bar.classList.add("hit");
+    } else if(r.b > r.c){
+      pill.className = "pill warn"; pill.textContent = "trending";
+      bar.classList.remove("hit");
+    } else {
+      pill.className = "pill mute"; pill.textContent = "no lift";
+      bar.classList.remove("hit");
+    }
+    exp.innerHTML = `McNemar on ${r.nd} discordant pairs — <b>b = ${r.b}</b> caught only by the challenger, <b>c = ${r.c}</b> only by the champion. χ²(1) = ${r.chi2.toFixed(2)} across ${r.n} fraud attempts.`;
+  }
+}
+
+function driftClass(v){ return v > 0.25 ? "bad" : v > 0.10 ? "warn" : "good"; }
+function driftWord(v){ return v > 0.25 ? "drifting" : v > 0.10 ? "watch" : "stable"; }
+
+function renderFeats(){
+  const host = $("feats");
+  if(!host.children.length){
+    host.innerHTML = FEATURES.map(F => `
+      <div class="feat">
+        <span class="fn">${F.label}</span>
+        <span class="track">
+          <span class="thr" style="left:20%"></span>
+          <span class="thr" style="left:50%"></span>
+          <i id="bar-${F.key}" style="width:0%"></i>
+        </span>
+        <span class="fv" id="val-${F.key}">0.00</span>
+        <span class="fs"><span class="pill good" id="pill-${F.key}">stable</span></span>
+      </div>`).join("");
+  }
+  for(const F of FEATURES){
+    const v = S.psi[F.key], k = driftClass(v);
+    const bar = $("bar-"+F.key);
+    bar.style.width = clamp(v/0.5, 0, 1)*100 + "%";
+    bar.style.background = k==="bad" ? "var(--bad)" : k==="warn" ? "var(--warn)" : "var(--good)";
+    $("val-"+F.key).textContent = v.toFixed(2);
+    const p = $("pill-"+F.key);
+    p.className = "pill " + k;
+    p.textContent = driftWord(v);
+  }
+}
+
+function renderLog(){
+  $("log").innerHTML = S.log.map(e => `
+    <li>
+      <span class="t mono">${e.t}</span>
+      <span class="sv"><span class="pill ${e.sev}">${e.sev==="good"?"ok":e.sev==="warn"?"warn":"alert"}</span></span>
+      <span class="m">${e.html}</span>
+    </li>`).join("");
+  $("logCount").textContent = S.log.length + (S.log.length===1?" event":" events");
+}
+
+function renderStream(){
+  $("stream").innerHTML = S.stream.map((r,i) => `
+    <tr class="${r.disagree?"disagree":""}">
+      <td>${r.id}</td>
+      <td class="r">$${r.amt.toFixed(2)}</td>
+      <td>${r.merch}</td>
+      <td class="r">${r.vel.toFixed(1)}</td>
+      <td class="r">${Math.round(r.dev)}d</td>
+      <td class="verdict ${r.dc?"decline":"approve"}">${r.dc?"DECLINE":"approve"}</td>
+      <td class="verdict ${r.dh?"decline":"approve"}">${r.dh?"DECLINE":"approve"}</td>
+      <td>${r.fraud?'<span class="tag fraud">fraud</span>':'<span class="tag">legitimate</span>'}</td>
+    </tr>`).join("");
+}
+
+/* ---------- line chart ---------- */
+let W=720, H=250;
+const PAD={t:16,r:20,b:26,l:46};
+let IW = W-PAD.l-PAD.r, IH = H-PAD.t-PAD.b;
+const MAXPTS = 90;
+
+function sizeChart(){
+  const box = $("chartBox");
+  const w = Math.max(320, box.clientWidth || 720);
+  const h = Math.max(230, box.clientHeight || 250);
+  W = w; H = h;
+  IW = W-PAD.l-PAD.r; IH = H-PAD.t-PAD.b;
+  $("chart").setAttribute("viewBox", `0 0 ${W} ${H}`);
+}
+
+const SLOT = () => IW/(MAXPTS-1);
+/* newest sample pinned to the right edge; a partly-filled window grows leftward */
+function xAt(i, len){ return PAD.l + IW - (len-1-i)*SLOT(); }
+function yAt(v, d){ return PAD.t + IH - ((v-d.min)/(d.max-d.min))*IH; }
+
+function domain(){
+  const all = S.series.champ.concat(S.series.chall);
+  if(!all.length) return { min:0, max:1 };
+  let lo = Math.min(...all), hi = Math.max(...all);
+  const pad = Math.max(0.05, (hi-lo)*0.35);
+  lo = Math.max(0, lo-pad); hi = Math.min(1, hi+pad);
+  if(hi-lo < 0.14){ const c=(hi+lo)/2; lo=Math.max(0,c-0.07); hi=Math.min(1,c+0.07); }
+  return { min:lo, max:hi };
+}
+
+function pathFor(arr, d){
+  if(arr.length < 2) return "";
+  return arr.map((v,i) =>
+    (i?"L":"M") + xAt(i,arr.length).toFixed(1) + " " + yAt(v,d).toFixed(1)
+  ).join(" ");
+}
+
+function renderChart(){
+  sizeChart();
+  const svg = $("chart");
+  const A = S.series.champ, B = S.series.chall;
+  const d = domain();
+
+  let out = "";
+  for(let k=0;k<=4;k++){
+    const val = d.min + (k/4)*(d.max-d.min);
+    const y = yAt(val, d);
+    out += `<line x1="${PAD.l}" y1="${y.toFixed(1)}" x2="${PAD.l+IW}" y2="${y.toFixed(1)}"
+      stroke="var(--line)" stroke-width="1" shape-rendering="crispEdges"/>`;
+    out += `<text x="${PAD.l-8}" y="${(y+4).toFixed(1)}" text-anchor="end"
+      font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--ink-3)">${(val*100).toFixed(0)}%</text>`;
+  }
+  out += `<text x="${PAD.l}" y="${H-6}" font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--ink-3)">90 windows ago</text>`;
+  out += `<text x="${PAD.l+IW}" y="${H-6}" text-anchor="end" font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--ink-3)">now</text>`;
+
+  for(const m of S.marks){
+    if(m >= A.length) continue;
+    const mx = xAt(m, A.length);
+    out += `<line x1="${mx.toFixed(1)}" y1="${PAD.t}" x2="${mx.toFixed(1)}" y2="${PAD.t+IH}"
+      stroke="var(--ink-3)" stroke-width="1" stroke-dasharray="2 4" opacity=".7"/>`;
+    out += `<text x="${(mx+5).toFixed(1)}" y="${(PAD.t+IH-6).toFixed(1)}"
+      font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--ink-3)"
+      paint-order="stroke" stroke="var(--surface)" stroke-width="3"
+      letter-spacing=".06em">PROMOTED</text>`;
+  }
+  if(A.length > 1) out += `<path d="${pathFor(A,d)}" fill="none" stroke="var(--champ)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  if(B.length > 1) out += `<path d="${pathFor(B,d)}" fill="none" stroke="var(--chall)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+
+  const endMark = (arr, color, above) => {
+    if(!arr.length) return "";
+    const i = arr.length-1, v = arr[i];
+    const x = xAt(i, arr.length), y = yAt(v, d);
+    const dy = above ? -12 : 22;
+    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4" fill="${color}"
+        stroke="var(--surface)" stroke-width="2"/>
+      <text x="${(x-8).toFixed(1)}" y="${(y+dy).toFixed(1)}" text-anchor="end"
+        font-family="IBM Plex Mono, monospace" font-size="12" font-weight="600"
+        paint-order="stroke" stroke="var(--surface)" stroke-width="3.5"
+        fill="${color}">${(v*100).toFixed(1)}%</text>`;
+  };
+  const aLast = A.length ? A[A.length-1] : 0, bLast = B.length ? B[B.length-1] : 0;
+  out += endMark(A, "var(--champ)", aLast >= bLast);
+  out += endMark(B, "var(--chall)", bLast > aLast);
+
+  out += `<line id="xh" x1="0" y1="${PAD.t}" x2="0" y2="${PAD.t+IH}" stroke="var(--ink-3)"
+    stroke-width="1" stroke-dasharray="3 3" opacity="0"/>`;
+  out += `<rect x="${PAD.l}" y="${PAD.t}" width="${IW}" height="${IH}" fill="transparent" id="hit"/>`;
+  svg.innerHTML = out;
+  attachHover();
+}
+
+function attachHover(){
+  const svg = $("chart"), tip = $("tip"), box = $("chartBox"), xh = $("xh");
+  const hit = $("hit");
+  if(!hit) return;
+  hit.addEventListener("mousemove", e => {
+    const A = S.series.champ, B = S.series.chall;
+    const len = Math.max(A.length, B.length);
+    if(len < 2) return;
+    const r = svg.getBoundingClientRect();
+    const sx = (e.clientX - r.left) / r.width * W;
+    let i = Math.round((sx - (PAD.l + IW - (len-1)*SLOT())) / SLOT());
+    i = clamp(i, 0, len-1);
+    const gx = PAD.l + IW - (len-1-i)*SLOT();
+    xh.setAttribute("x1", gx); xh.setAttribute("x2", gx); xh.setAttribute("opacity", "1");
+    const a = A[i - (len - A.length)], b = B[i - (len - B.length)];
+    tip.innerHTML = `<div class="th">${len-1-i === 0 ? "latest window" : (len-1-i) + " windows ago"}</div>
+      <div class="tr"><span class="sw" style="background:var(--champ)"></span>champion
+        <span class="tv">${a===undefined?"—":(a*100).toFixed(1)+"%"}</span></div>
+      <div class="tr"><span class="sw" style="background:var(--chall)"></span>challenger
+        <span class="tv">${b===undefined?"—":(b*100).toFixed(1)+"%"}</span></div>`;
+    tip.style.opacity = "1";
+    const px = gx/W * box.clientWidth;
+    tip.style.left = clamp(px - 80, 0, Math.max(0, box.clientWidth-170)) + "px";
+    tip.style.top  = "4px";
+  });
+  hit.addEventListener("mouseleave", () => {
+    tip.style.opacity = "0"; xh.setAttribute("opacity","0");
+  });
+}
+
+function pushSeries(){
+  const a = S.champArm.ema, b = S.challArm.ema;
+  if(a !== null) S.series.champ.push(a);
+  if(b !== null) S.series.chall.push(b);
+  if(S.pendingMark && S.series.champ.length){
+    S.marks.push(S.series.champ.length-1);
+    S.pendingMark = false;
+  }
+  if(S.series.champ.length > MAXPTS){
+    S.series.champ.shift();
+    S.marks = S.marks.map(m=>m-1).filter(m=>m>=0);
+  }
+  if(S.series.chall.length > MAXPTS) S.series.chall.shift();
+}
+
+function renderAll(){
+  renderStats(); renderScoreboard(); renderFeats(); renderStream(); renderChart();
+}
+
+/* =====================================================================
+   10. LOOP
+   ===================================================================== */
+let acc = 0, last = performance.now(), tickCount = 0;
+
+function frame(now){
+  const dt = Math.min(120, now - last); last = now;
+  if(S.running){
+    acc += dt;
+    const per = 1000/150;               // ~150 authorizations per second
+    let guard = 0;
+    while(acc >= per && guard++ < 600){ step(); acc -= per; tickCount++; }
+    if(guard) control();
+  }
+  requestAnimationFrame(frame);
+}
+
+let uiTimer = null, seriesTimer = null;
+function startTimers(){
+  clearInterval(uiTimer); clearInterval(seriesTimer);
+  uiTimer = setInterval(() => { if(S.running) renderAll(); }, 220);
+  seriesTimer = setInterval(() => { if(S.running) pushSeries(); }, 700);
+}
+
+/* =====================================================================
+   11. BOOT + CONTROLS
+   ===================================================================== */
+function boot(){
+  seed = 20260821;
+  S = freshState();
+  S.baseline = buildBaseline();
+  $("feats").innerHTML = "";
+  $("log").innerHTML = "";
+  logEvent("good", `<b>Champion v3.2 serving 90%.</b> Challenger v4.0 entered the arena at 10% with a velocity feature the incumbent does not have.`);
+  // warm up so the page has something to show immediately
+  for(let i=0;i<9200;i++){ step(); if(i%102===0) pushSeries(); }
+  control();
+  renderAll();
+  startTimers();
+}
+
+$("btnPlay").addEventListener("click", () => {
+  S.running = !S.running;
+  $("btnPlay").textContent = S.running ? "Pause" : "Resume";
+  const b = $("liveBadge");
+  b.className = "live " + (S.running ? "on" : "off");
+  $("liveTxt").textContent = S.running ? "Streaming" : "Paused";
+  last = performance.now();
+});
+$("btnDrift").addEventListener("click", triggerDrift);
+$("btnReset").addEventListener("click", () => {
+  boot();
+  S.running = true;
+  $("btnPlay").textContent = "Pause";
+  $("liveBadge").className = "live on";
+  $("liveTxt").textContent = "Streaming";
+});
+
+boot();
+requestAnimationFrame(frame);
+window.addEventListener("resize", () => renderChart());
+
+/* the story tells itself for a first-time visitor: drift arrives on its own
+   about 18 seconds in, unless they trigger it sooner */
+setTimeout(() => { if(S.regime === "stable" && S.running) triggerDrift(); }, 14000);
+setInterval(() => { if(S.regime === "stable" && S.running) triggerDrift(); }, 32000);
+
+})();
+</script>
+
+</body>
+</html>
